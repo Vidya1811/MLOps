@@ -14,7 +14,6 @@ class TestCalculator(unittest.TestCase):
     def test_fun1(self):
         self.assertEqual(calculator.fun1(2, 3), 5)
         self.assertEqual(calculator.fun1(5, 0), 5)
-        
         self.assertEqual(calculator.fun1(-1, 1), 0)
         self.assertEqual(calculator.fun1(-1, -1), -2)
 
@@ -31,11 +30,30 @@ class TestCalculator(unittest.TestCase):
         self.assertEqual(calculator.fun3(-1, -1), 1)
 
     def test_fun4(self):
-        self.assertEqual(calculator.fun4(2, 3, 5), 10)
-        self.assertEqual(calculator.fun4(5, 0, -1), 4)
-        self.assertEqual(calculator.fun4(-1, -1, -1), -3)
-        self.assertEqual(calculator.fun4(-1, -1, 100), 98)
+        # fun4(x,y) = (x+y) + (x-y) + (x*y)
+        self.assertEqual(
+            calculator.fun4(2, 3),
+            (2 + 3) + (2 - 3) + (2 * 3)   # 5 + (-1) + 6 = 10
+        )
+        self.assertEqual(
+            calculator.fun4(5, 0),
+            (5 + 0) + (5 - 0) + (5 * 0)   # 5 + 5 + 0 = 10
+        )
+        self.assertEqual(
+            calculator.fun4(-1, -1),
+            (-1 + -1) + (-1 - -1) + (-1 * -1)  # -2 + 0 + 1 = -1
+        )
 
+    def test_fun5_divide_basic(self):
+        self.assertEqual(calculator.fun5_divide(10, 2), 5)
+
+    def test_fun5_divide_by_zero(self):
+        with self.assertRaises(ZeroDivisionError):
+            calculator.fun5_divide(10, 0)
+
+    def test_fun5_divide_type_error(self):
+        with self.assertRaises(ValueError):
+            calculator.fun5_divide("10", 2)
 
 
 if __name__ == '__main__':

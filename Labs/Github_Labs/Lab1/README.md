@@ -1,3 +1,8 @@
+## My Modifications
+- Refactored `fun4(x, y)` to combine results of fun1, fun2, and fun3 as described
+- Added `fun5_divide(x, y)` with error handling and test coverage
+
+
 # LAB1 - MLOps (IE-7374) 
 
 This lab focuses on 5 modules, which includes creating a virtual environment, creating a GitHub repository, creating Python files, creating test files using pytest and unittest, and implementing GitHub Actions.
