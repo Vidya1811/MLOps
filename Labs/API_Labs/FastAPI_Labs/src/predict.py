@@ -1,13 +1,28 @@
-import joblib
+import pickle
+import numpy as np
 
-def predict_data(X):
-    """
-    Predict the class labels for the input data.
-    Args:
-        X (numpy.ndarray): Input data for which predictions are to be made.
-    Returns:
-        y_pred (numpy.ndarray): Predicted class labels.
-    """
-    model = joblib.load("../model/iris_model.pkl")
-    y_pred = model.predict(X)
-    return y_pred
+with open("../model/wine_model.pkl", "rb") as f:
+    model = pickle.load(f)
+
+
+def predict_wine(data):
+
+    features = np.array(
+        [
+            data.fixed_acidity,
+            data.volatile_acidity,
+            data.citric_acid,
+            data.residual_sugar,
+            data.chlorides,
+            data.free_sulfur_dioxide,
+            data.total_sulfur_dioxide,
+            data.density,
+            data.pH,
+            data.sulphates,
+            data.alcohol,
+        ]
+    ).reshape(1, -1)
+
+    prediction = model.predict(features)
+
+    return int(prediction[0])
