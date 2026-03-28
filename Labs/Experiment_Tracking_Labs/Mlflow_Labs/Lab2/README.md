@@ -1,449 +1,367 @@
-# Wine Quality Prediction Lab Documentation
+# Heart Disease Prediction Lab — MLflow Experiment Tracking
 
-This documentation provides a step-by-step guide to a data science lab focused on predicting wine quality using Python. The lab covers data preprocessing, model training, model registration, and batch inference using MLflow and various machine learning libraries.
+This lab demonstrates the full machine learning lifecycle using **MLflow**: data preprocessing, exploratory data analysis, model training with experiment tracking, hyperparameter tuning, model comparison, model registry, batch inference, and real-time serving.
+
+**Adapted from** the [Wine Quality MLflow Lab2](https://github.com/raminmohammadi/MLOps/tree/main/Labs/Experiment_Tracking_Labs/Mlflow_Labs/Lab2).
+
+---
+
+## Modifications from Original Lab
+
+| Area | Original (Wine Quality) | Modified (Heart Disease) |
+|------|------------------------|--------------------------|
+| **Dataset** | UCI Wine Quality (red + white CSVs) | UCI Heart Disease (Cleveland), auto-downloaded |
+| **Preprocessing** | Concatenation + `is_red` indicator variable | Binary target conversion (0–4 → 0/1) + missing value handling (`?` → NaN → drop) |
+| **Feature Scaling** | None | `StandardScaler` fit on train, applied to val/test; embedded in model wrapper |
+| **Models Trained** | 1 model: untuned Random Forest (10 trees) | 3 models: baseline RF, tuned RF via `GridSearchCV`, Gradient Boosting Classifier |
+| **Hyperparameter Tuning** | None | `GridSearchCV` with 3-fold CV over `n_estimators`, `max_depth`, `min_samples_split` |
+| **Metrics Logged** | AUC only | AUC, Precision, Recall, F1-score |
+| **Artifacts Logged** | Model only | Model + confusion matrix PNG per run + feature importance chart + correlation heatmap |
+| **Model Selection** | Manual (hardcoded run name lookup) | Automatic best-model selection by highest test AUC across all runs |
+| **Model Registry** | Stage-based (`transition_model_version_stage` → "Production") | Alias-based (`set_registered_model_alias` → "champion") — uses the modern MLflow API |
+| **Visualization** | `distplot` of quality + box plots | Count plot + box plots + correlation heatmap + horizontal bar chart of feature importances |
+| **Model Wrapper** | Wraps model only | Wraps both model and scaler so production model accepts raw (unscaled) input |
+
+---
 
 ## Prerequisites
 
-Before starting the lab, ensure that you have the following:
+- **Python** 3.8+ (tested on 3.9)
+- **pip** package manager
+- **Git** for cloning the repository
 
-- Python environment set up with required libraries installed.
-- Datasets: You will need two CSV files, `winequality-white.csv` and `winequality-red.csv`, containing white and red wine data, respectively.
+## Setup
 
-## Step 1: Importing Data
+```bash
+# 1. Clone your fork
+git clone https://github.com/<your-username>/MLOps.git
+cd MLOps/Labs/Experiment_Tracking_Labs/Mlflow_Labs/Lab2
 
-In this step, we load the white and red wine datasets using the Pandas library.
+# 2. Create and activate a virtual environment
+python -m venv venv
+source venv/bin/activate        # macOS/Linux
+# venv\Scripts\activate          # Windows
 
-```python
-import pandas as pd
+# 3. Install dependencies
+pip install pandas numpy scikit-learn mlflow seaborn matplotlib cloudpickle
 
-# Load white wine data
-white_wine = pd.read_csv("data/winequality-white.csv", sep=";")
-
-# Load red wine data
-red_wine = pd.read_csv("data/winequality-red.csv", sep=",")
+# 4. (Optional) Verify MLflow is installed
+mlflow --version
 ```
 
-## Step 2: Exploring Data
+---
 
-In this step, we'll explore the wine dataset by examining the first few rows of both the white and red wine datasets.
+## Dataset
 
-### Code:
+**UCI Heart Disease — Cleveland subset**
 
-```python
-white_wine.head()
-red_wine.head()
+| Property | Detail |
+|----------|--------|
+| **Source** | [UCI ML Repository — Heart Disease](https://archive.ics.uci.edu/ml/datasets/Heart+Disease) |
+| **Original Creators** | Hungarian Institute of Cardiology, University Hospital Zurich, University Hospital Basel, V.A. Medical Center |
+| **Samples** | 303 total, 297 after dropping rows with missing values |
+| **Features** | 13 clinical attributes |
+| **Target** | Originally 0–4 (severity); converted to binary: 0 = no disease, 1 = disease present |
+| **Class Balance** | 160 no disease (54%) / 137 disease (46%) after preprocessing |
+
+### Feature Descriptions
+
+| Feature | Description | Type |
+|---------|-------------|------|
+| `age` | Age in years | Continuous |
+| `sex` | Sex (1 = male, 0 = female) | Binary |
+| `cp` | Chest pain type (1–4) | Categorical |
+| `trestbps` | Resting blood pressure (mm Hg) | Continuous |
+| `chol` | Serum cholesterol (mg/dl) | Continuous |
+| `fbs` | Fasting blood sugar > 120 mg/dl (1 = true, 0 = false) | Binary |
+| `restecg` | Resting ECG results (0–2) | Categorical |
+| `thalach` | Maximum heart rate achieved | Continuous |
+| `exang` | Exercise-induced angina (1 = yes, 0 = no) | Binary |
+| `oldpeak` | ST depression induced by exercise relative to rest | Continuous |
+| `slope` | Slope of peak exercise ST segment (1–3) | Categorical |
+| `ca` | Number of major vessels colored by fluoroscopy (0–3) | Discrete |
+| `thal` | Thalassemia (3 = normal, 6 = fixed defect, 7 = reversible defect) | Categorical |
+
+The script **downloads the data automatically** from the UCI repository at runtime. No manual download is needed.
+
+---
+
+## Running the Lab
+
+```bash
+# Make sure your venv is activated, then:
+python heart_disease_mlflow_lab.py
 ```
 
-## Step 3: Data Preprocessing
+### Expected Output
 
-In this step, we'll perform data preprocessing tasks to prepare the wine dataset for model training.
+The script prints progress for each step. A successful run ends with:
 
-### Adding Indicator Variable
-
-We add an indicator variable 'is_red' to both datasets to distinguish between white and red wines.
-
-### Code:
-
-```python
-red_wine['is_red'] = 1
-white_wine['is_red'] = 0
-
-data = pd.concat([red_wine, white_wine], axis=0)
-
-# Remove spaces from column names
-data.rename(columns=lambda x: x.replace(' ', '_'), inplace=True)
+```
+============================================================
+Lab Complete!
+============================================================
 ```
 
-## Step 4: Data Visualization
+### Generated Files
 
-In this step, we'll visualize the distribution of the 'quality' variable in the wine dataset.
+After running, you'll find these files in your working directory:
 
-### Code:
+| File | Description |
+|------|-------------|
+| `target_distribution.png` | Bar chart showing class balance (disease vs no disease) |
+| `eda_boxplots.png` | Box plots of continuous features grouped by target |
+| `correlation_heatmap.png` | Heatmap of pairwise feature correlations |
+| `feature_importances.png` | Horizontal bar chart of Random Forest feature importances |
+| `test_confusion_matrix.png` | Confusion matrix from each run (also logged to MLflow) |
+| `mlruns/` | MLflow tracking directory containing all experiment data |
+
+---
+
+## Step-by-Step Walkthrough
+
+### Steps 1–2: Import Libraries and Load Data
+
+The Cleveland heart disease dataset is fetched directly from the UCI repository URL. If the download fails (e.g., no internet), it falls back to a local `data/heart.csv` file.
 
 ```python
-import seaborn as sns
-import matplotlib.pyplot as plt
-
-sns.distplot(data.quality, kde=False);
+url = "https://archive.ics.uci.edu/ml/machine-learning-databases/heart-disease/processed.cleveland.data"
+data = pd.read_csv(url, names=column_names, na_values="?")
 ```
 
+The dataset has 303 rows and 14 columns (13 features + 1 target).
 
-## Step 5: Define High-Quality Wines
+### Step 3: Data Preprocessing
 
-In this step, we'll define what constitutes a "high-quality" wine based on a quality score threshold.
+Three operations are performed:
 
-### Code:
+1. **Binary target conversion**: The original target column has values 0–4 representing severity of heart disease. We convert this to binary — any value > 0 becomes 1 (disease present).
+   ```python
+   data["target"] = (data["target"] > 0).astype(int)
+   ```
+2. **Missing value handling**: The `ca` and `thal` columns contain `?` characters (loaded as NaN). We drop these 6 rows, leaving 297 samples.
+3. **Column name cleaning**: Strip whitespace and replace spaces with underscores.
 
-```python
-high_quality = (data.quality >= 7).astype(int)
-data.quality = high_quality
-```
+### Step 4: Data Visualization
 
-### Explanation:
-We create a new binary column high_quality in the data DataFrame.
-A wine is considered "high quality" if its 'quality' score is greater than or equal to 7.
-We use (data.quality >= 7) to create a boolean mask and then convert it to integers (astype(int)) to represent high-quality wines as 1 and others as 0.
-The original 'quality' column is updated with these new values.
-Expected Output:
-The data DataFrame will have a new 'quality' column indicating whether each wine is of high quality (1) or not (0).
+A count plot of the target distribution is generated and saved. The dataset is reasonably balanced: 160 negative (54%) and 137 positive (46%).
 
+### Step 5: Exploratory Data Analysis (EDA)
 
+Box plots are created for the five continuous features (`age`, `trestbps`, `chol`, `thalach`, `oldpeak`) grouped by the binary target. This helps identify which features show separation between disease and no-disease groups.
 
-## Step 6: Exploratory Data Analysis (EDA)
+Key observations:
+- **`thalach`** (max heart rate): Patients with heart disease tend to have lower max heart rates.
+- **`oldpeak`** (ST depression): Higher values are associated with disease presence.
+- **`age`**: Patients with heart disease tend to be older.
 
-In this step, we'll perform Exploratory Data Analysis (EDA) by creating box plots to identify potential predictors of wine quality.
+### Step 6: Correlation Heatmap
 
-### Code:
+A full 14×14 correlation matrix is computed and plotted as a heatmap. This reveals multicollinearity between features and shows which features correlate most strongly with the target.
 
-```python
-import matplotlib.pyplot as plt
+### Step 7: Data Splitting
 
-dims = (3, 4)
-f, axes = plt.subplots(dims[0], dims[1], figsize=(25, 15))
-axis_i, axis_j = 0, 0
+The data is split into three sets:
 
-for col in data.columns:
-    if col == 'is_red' or col == 'quality':
-        continue  # Box plots cannot be used on indicator variables
-    sns.boxplot(x=high_quality, y=data[col], ax=axes[axis_i, axis_j])
-    axis_j += 1
-    if axis_j == dims[1]:
-        axis_i += 1
-        axis_j = 0
-```
+| Set | Proportion | Samples | Purpose |
+|-----|-----------|---------|---------|
+| Train | 60% | 178 | Model fitting |
+| Validation | 20% | 59 | Hyperparameter tuning (available for future use) |
+| Test | 20% | 60 | Final evaluation |
 
-## Step 7: Checking for Missing Data
+`random_state=42` ensures reproducibility.
 
-In this step, we'll check for missing data within the wine dataset.
+### Step 8: Feature Scaling
 
-### Code:
+`StandardScaler` is fit on the training data only and applied to all three splits. This prevents data leakage from validation/test sets.
+
+The scaler is embedded inside the `SklearnModelWrapper` class so the registered production model can accept raw (unscaled) input and handle scaling internally:
 
 ```python
-data.isna().any()
-```
-
-
-## Step 8: Data Splitting
-
-In this step, we'll split the dataset into training, validation, and test sets to prepare for model training and evaluation.
-
-### Code:
-
-```python
-from sklearn.model_selection import train_test_split
-
-X = data.drop(["quality"], axis=1)
-y = data.quality
-
-# Split out the training data
-X_train, X_rem, y_train, y_rem = train_test_split(X, y, train_size=0.6, random_state=123)
-
-# Split the remaining data equally into validation and test
-X_val, X_test, y_val, y_test = train_test_split(X_rem, y_rem, test_size=0.5, random_state=123)
-```
-
-## Step 9: Building a Baseline Model
-
-In this step, we'll create a baseline model using a random forest classifier and log its performance using MLflow.
-
-### Code:
-
-```python
-import mlflow
-import mlflow.pyfunc
-import mlflow.sklearn
-import numpy as np
-import sklearn
-from sklearn.ensemble import RandomForestClassifier
-from sklearn.metrics import roc_auc_score
-from mlflow.models.signature import infer_signature
-from mlflow.utils.environment import _mlflow_conda_env
-import cloudpickle
-import time
-
-# The predict method of sklearn's RandomForestClassifier returns a binary classification (0 or 1).
-# The following code creates a wrapper function, SklearnModelWrapper, that uses 
-# the predict_proba method to return the probability that the observation belongs to each class.
-
 class SklearnModelWrapper(mlflow.pyfunc.PythonModel):
-    def __init__(self, model):
+    def __init__(self, model, scaler):
         self.model = model
+        self.scaler = scaler
 
     def predict(self, context, model_input):
-        return self.model.predict_proba(model_input)[:,1]
-
-# mlflow.start_run creates a new MLflow run to track the performance of this model. 
-# Within the context, you call mlflow.log_param to keep track of the parameters used, and
-# mlflow.log_metric to record metrics like accuracy.
-
-with mlflow.start_run(run_name='untuned_random_forest'):
-    n_estimators = 10
-    model = RandomForestClassifier(n_estimators=n_estimators, random_state=np.random.RandomState(123))
-    model.fit(X_train, y_train)
-
-    # predict_proba returns [prob_negative, prob_positive], so slice the output with [:, 1]
-    predictions_test = model.predict_proba(X_test)[:,1]
-    auc_score = roc_auc_score(y_test, predictions_test)
-    mlflow.log_param('n_estimators', n_estimators)
-    # Use the area under the ROC curve as a metric.
-    mlflow.log_metric('auc', auc_score)
-    wrappedModel = SklearnModelWrapper(model)
-    # Log the model with a signature that defines the schema of the model's inputs and outputs. 
-    # When the model is deployed, this signature will be used to validate inputs.
-    signature = infer_signature(X_train, wrappedModel.predict(None, X_train))
-
-    # MLflow contains utilities to create a conda environment used to serve models.
-    # The necessary dependencies are added to a conda.yaml file which is logged along with the model.
-    conda_env =  _mlflow_conda_env(
-            additional_conda_deps=None,
-            additional_pip_deps=["cloudpickle=={}".format(cloudpickle.__version__), "scikit-learn=={}".format(sklearn.__version__)],
-            additional_conda_channels=None,
-        )
-    mlflow.pyfunc.log_model("random_forest_model",
-                            python_model=wrappedModel,
-                            conda_env=conda_env,
-                            signature=signature)
-
+        scaled = self.scaler.transform(model_input)
+        return self.model.predict_proba(scaled)[:, 1]
 ```
 
-### Explanation:
-We create a random forest classifier model using scikit-learn's RandomForestClassifier.
-The model is trained on the training data (X_train, y_train).
-We log various information using MLflow, including model parameters (n_estimators), the Area Under the ROC Curve (AUC) metric, and the model itself.
-A wrapper class SklearnModelWrapper is used to make predictions using predict_proba, which returns class probabilities.
-We also define a signature to validate inputs when the model is deployed.
-Expected Output:
-Model training details and metrics (e.g., AUC) will be logged in the MLflow run.
-The trained model will be saved for future use.
+### Step 9: Baseline Model — Untuned Random Forest
 
+A Random Forest with just 10 estimators and default hyperparameters serves as the baseline.
 
-## Step 10: Feature Importance Analysis
+**Logged to MLflow:**
+- Parameters: `model_type`, `n_estimators`, `scaling`
+- Metrics: `test_auc`, `test_precision`, `test_recall`, `test_f1`
+- Artifacts: confusion matrix PNG, the model itself
 
-In this step, we analyze feature importance to identify which features have the most impact on predicting wine quality.
+**Typical results:** AUC ≈ 0.94, F1 ≈ 0.89
 
-### Code:
+### Step 10: Feature Importance Analysis
+
+Feature importances from the baseline Random Forest are extracted and plotted. Top features typically include:
+- `thalach` (max heart rate achieved)
+- `ca` (number of major vessels)
+- `thal` (thalassemia type)
+- `age`
+
+### Step 11: Tuned Random Forest (GridSearchCV)
+
+`GridSearchCV` performs an exhaustive search over:
+
+| Parameter | Values Tested |
+|-----------|--------------|
+| `n_estimators` | 50, 100, 200 |
+| `max_depth` | 5, 10, None |
+| `min_samples_split` | 2, 5 |
+
+This is 3 × 3 × 2 = **18 parameter combinations**, each evaluated with 3-fold cross-validation (54 fits total), optimizing for AUC.
+
+**Typical best params:** `{'max_depth': 5, 'min_samples_split': 5, 'n_estimators': 200}`
+
+**Typical results:** AUC ≈ 0.97, F1 ≈ 0.87
+
+### Step 12: Gradient Boosting Classifier
+
+A `GradientBoostingClassifier` is trained as a second model type for comparison:
+- `n_estimators=100`, `learning_rate=0.1`, `max_depth=5`
+
+**Typical results:** AUC ≈ 0.92, F1 ≈ 0.84
+
+### Step 13: Model Registration
+
+The script automatically finds the best run by sorting all runs on `test_auc` in descending order:
 
 ```python
-feature_importances = pd.DataFrame(model.feature_importances_, index=X_train.columns.tolist(), columns=['importance'])
-feature_importances.sort_values('importance', ascending=False)
+best_run = mlflow.search_runs(order_by=["metrics.test_auc DESC"]).iloc[0]
 ```
 
-### Explanation:
-We calculate the feature importances using the trained random forest classifier model.
-The model.feature_importances_ attribute provides the importance scores for each feature.
-We create a DataFrame feature_importances to display the importances along with feature names.
-Finally, we sort the DataFrame in descending order to identify the most important features.
-Expected Output:
-The output will be a table showing the feature importances in descending order, with the most important features at the top.
+The best model is registered in the MLflow Model Registry under the name `heart_disease_prediction`.
 
+### Step 14: Set Production Alias
 
-
-## Step 11: Model Registration in MLflow Model Registry
-
-In this step, we'll register the trained model in the MLflow Model Registry for version tracking and management.
-
-### Code:
+Instead of the deprecated stage-based workflow (`transition_model_version_stage`), we use the modern **alias-based** approach:
 
 ```python
-run_id = mlflow.search_runs(filter_string='tags.mlflow.runName = "untuned_random_forest"').iloc[0].run_id
-model_name = "wine_quality"
-model_version = mlflow.register_model(f"runs:/{run_id}/random_forest_model", model_name)
-
-# Registering the model takes a few seconds, so add a small delay
-time.sleep(15)
-```
-
-### Explanation:
-We retrieve the run ID of the MLflow run where the model was trained using mlflow.search_runs.
-We specify the desired model name, in this case, "wine_quality."
-We use mlflow.register_model to register the model in the Model Registry. The path to the model is constructed using the run ID.
-A delay is added to ensure the model registration process is completed.
-Expected Output:
-The trained model will be registered in the MLflow Model Registry under the specified model name ("wine_quality").
-
-### Note:
-Model registration in the MLflow Model Registry allows for versioning and tracking of different model versions. It's a crucial step for managing and deploying machine learning models in a production environment.
-
-## Step 12: Transitioning Model Version to Production
-
-In this step, we'll transition the newly registered model version to the "Production" stage in the MLflow Model Registry.
-
-### Code:
-
-```python
-from mlflow.tracking import MlflowClient
-
-client = MlflowClient()
-client.transition_model_version_stage(
-  name=model_name,
-  version=model_version.version,
-  stage="Production",
+client.set_registered_model_alias(
+    name=model_name,
+    alias="champion",
+    version=model_version.version,
 )
 ```
 
-### Explanation:
-We use the MlflowClient to interact with the MLflow Tracking Server programmatically.
-The client.transition_model_version_stage method is used to transition the model version to the "Production" stage.
-Expected Output:
-The model version will be moved to the "Production" stage in the MLflow Model Registry.
+This labels the best model version as `"champion"`, which can be loaded via `models:/{name}@champion`.
 
-### Note:
-Transitioning a model version to "Production" indicates that it is ready for use in a production environment. You can now refer to the model using the path "models:/wine_quality/production." This step is crucial for managing the deployment of machine learning models.
+### Step 15: Champion Model Inference
 
-
-## Step 13: Model Inference and Evaluation
-
-In this step, we'll load the production version of the model from the MLflow Model Registry and perform batch inference and evaluation.
-
-### Code:
+The champion model is loaded from the registry and used for batch inference on the test set as a sanity check:
 
 ```python
-model = mlflow.pyfunc.load_model(f"models:/{model_name}/production")
-
-# Sanity-check: This should match the AUC logged by MLflow
-print(f'AUC: {roc_auc_score(y_test, model.predict(X_test))}')
-
+prod_model = mlflow.pyfunc.load_model(f"models:/{model_name}@champion")
+prod_preds = prod_model.predict(X_test)
 ```
 
-### Explanation:
-We load the production version of the model from the MLflow Model Registry using mlflow.pyfunc.load_model.
-We perform batch inference on the test data (X_test) using the loaded model.
-We calculate and print the Area Under the ROC Curve (AUC) score to assess the model's performance.
-Expected Output:
-The AUC score will be printed, providing an evaluation of the model's performance on the test data.
+The printed AUC should match the value logged during training.
 
-### Note:
-Loading the production model version allows us to make predictions on new data.
-The AUC score is used here as an example metric for model evaluation. Depending on the problem, other evaluation metrics may be more appropriate.
+### Step 16: Model Serving (Manual)
 
-## Step 14: Batch Inference with the Deployed Model
-
-In this step, we'll perform batch inference using the deployed model to make predictions on a dataset stored in a Delta table.
-
-### Code:
-
-```python
-import mlflow.pyfunc
-
-apply_model_udf = mlflow.pyfunc.spark_udf(spark, f"models:/{model_name}/production")
-new_data = spark.read.format("csv").load(table_path)
-
-# Apply the model to the new data
-predictions = new_data.withColumn("prediction", apply_model_udf(*new_data.columns))
-
-```
-
-### Explanation:
-We use the mlflow.pyfunc.spark_udf function to create a Spark User-Defined Function (UDF) that applies the deployed production model to the input data.
-We read the new data from a Delta table using spark.read.format("csv").load(table_path).
-We apply the model to the new data using the UDF and create a new DataFrame predictions that includes the predictions.
-Expected Output:
-The predictions DataFrame will contain the input data along with a new column "prediction" that contains the model's predictions.
-
-### Note:
-Batch inference is the process of using a trained machine learning model to make predictions on a batch of data. In this step, we apply the deployed model to new data stored in a Delta table to make predictions at scale.
-
-
-## Step 15: Batch Inference Result Verification
-
-In this step, we'll verify and inspect the results of the batch inference performed using the deployed model.
-
-### Code:
-
-```python
-predictions.show()
-```
-
-## Step 16: Serving the Model for Real-Time Inference
-
-In this step, we'll serve the model to enable real-time inference using MLflow's model serving capabilities.
-
-### Code (Command Line):
+To serve the model as a REST API for real-time inference:
 
 ```bash
-# Serve the model using the MLflow Model Serving
-mlflow models serve -m models:/${model_name}/production -h 0.0.0.0 -p 5001
+mlflow models serve -m "models:/heart_disease_prediction@champion" -h 0.0.0.0 -p 5001
 ```
 
-### Explanation:
-We use the mlflow models serve command to start serving the model.
-
-```bash
--m models:/${model_name}/production specifies the model to be served. Adjust the path accordingly to match your model name and stage.
--h 0.0.0.0 specifies the host on which the model will be served.
--p 5001 specifies the port on which the model will be available for real-time inference.
-```
-
-### Expected Output:
-The model will be served and ready to accept real-time inference requests.
-
-### Note:
-Serving a model allows you to make real-time predictions by sending requests to the model's API endpoint.
-Ensure that the MLflow Model Server is correctly configured and running before serving the model.
-Real-time serving is useful for integrating machine learning models into production systems, applications, or APIs.
-
-## Step 17: Performing Real-Time Inference with the Deployed Model
-
-In this step, we'll perform real-time inference by sending requests to the deployed model's API endpoint.
-
-### Code (Python):
+Then send predictions from Python:
 
 ```python
 import requests
-import json
 
-url = 'http://localhost:5001/invocations'  # Replace with the actual endpoint URL
-
-data_dict = {"dataframe_split": X_test.to_dict(orient='split')}
-
-response = requests.post(url, json=data_dict)
-predictions = response.json()
-
-print(predictions)
+url = "http://localhost:5001/invocations"
+sample = {
+    "dataframe_split": {
+        "columns": ["age", "sex", "cp", "trestbps", "chol", "fbs",
+                     "restecg", "thalach", "exang", "oldpeak", "slope", "ca", "thal"],
+        "data": [[63, 1, 1, 145, 233, 1, 2, 150, 0, 2.3, 3, 0, 6]]
+    }
+}
+response = requests.post(url, json=sample)
+print(response.json())  # Returns probability of heart disease
 ```
 
-### Explanation:
-We use the requests library to send a POST request to the deployed model's API endpoint.
-The URL should be set to the correct endpoint where the model is served.
-We prepare the input data in the desired format and send it as JSON in the request.
-The response contains the model's predictions, which we extract using response.json().
-Finally, we print the predictions.
-Expected Output:
-The output will be the model's predictions for the input data sent in the request.
+---
 
-### Note:
-Real-time inference allows you to use the deployed model to make predictions on new data as it becomes available.
-Ensure that the model serving endpoint is running and accessible before making real-time inference requests.
-Replace the endpoint URL with the actual URL where your model is served.
+## Viewing the MLflow UI
 
-## Step 18: Cleaning Up and Conclusion
+After running the lab, launch the tracking UI:
 
-In this final step, we'll wrap up the lab and perform any necessary clean-up tasks.
+```bash
+mlflow ui --port 5000
+```
 
-### Clean-Up Tasks:
+Open **http://localhost:5000** in your browser. You can:
 
-- **Stop the Model Serving**: If you've started the model serving process, make sure to stop it when you're done with real-time inference. You can do this by stopping the MLflow Model Serving process or using appropriate commands.
+1. **Compare runs**: Select all three runs and click "Compare" to see metrics side-by-side.
+2. **View artifacts**: Click into any run to see logged confusion matrix images.
+3. **Check parameters**: See which hyperparameters were used for each run.
+4. **Model Registry**: Navigate to "Models" tab to see registered versions and aliases.
 
-- **Close Resources**: Ensure that any resources or connections used during the lab are properly closed or released.
+---
 
-- **Save Documentation**: Save this lab documentation for future reference or sharing with others.
+## Model Comparison Summary
 
-### Conclusion:
+| Model | AUC | Precision | Recall | F1 | Notes |
+|-------|-----|-----------|--------|----|-------|
+| Baseline RF (10 trees) | ~0.94 | ~0.88 | ~0.89 | ~0.89 | Quick baseline, no tuning |
+| Tuned RF (GridSearchCV) | **~0.97** | ~0.85 | ~0.89 | ~0.87 | Best AUC, auto-registered as champion |
+| Gradient Boosting | ~0.92 | ~0.84 | ~0.84 | ~0.84 | Alternative model type |
 
-In this lab, we've covered various aspects of the machine learning lifecycle, including data preparation, model training, evaluation, deployment, and real-time inference. Here are the key takeaways:
+*Exact values vary slightly depending on the random state and data split.*
 
-- Data preparation is essential for training and evaluating machine learning models. Cleaning, transforming, and splitting the data are crucial steps.
+The tuned Random Forest achieves the highest AUC and is automatically selected and registered as the champion model.
 
-- Model training involves selecting an appropriate algorithm, training the model, and evaluating its performance using relevant metrics.
+---
 
-- Model deployment involves registering the model, transitioning it to the production stage, and serving it for real-time inference.
+## Project Structure
 
-- Real-time inference allows you to use the deployed model to make predictions on new data as it arrives.
+```
+Lab2/
+├── heart_disease_mlflow_lab.py    # Main lab script (all steps)
+├── README.md                       # This documentation
+├── target_distribution.png         # Generated: target class distribution
+├── eda_boxplots.png               # Generated: EDA box plots by target
+├── correlation_heatmap.png        # Generated: feature correlation heatmap
+├── feature_importances.png        # Generated: RF feature importance bar chart
+├── test_confusion_matrix.png      # Generated: confusion matrix (last run)
+├── mlruns/                        # Generated: MLflow tracking data
+│   ├── <experiment_id>/           # Experiment folder
+│   │   ├── <run_id_1>/           # Baseline RF run
+│   │   ├── <run_id_2>/           # Tuned RF run
+│   │   └── <run_id_3>/           # Gradient Boosting run
+│   └── models/                    # Model registry data
+└── venv/                          # Virtual environment (not committed)
+```
 
-By following these steps, you can effectively develop and deploy machine learning models for various applications.
+---
 
-Thank you for completing this lab!
+## Troubleshooting
 
+| Issue | Solution |
+|-------|----------|
+| `ModuleNotFoundError` for any package | Run `pip install pandas numpy scikit-learn mlflow seaborn matplotlib cloudpickle` |
+| `NotOpenSSLWarning` about LibreSSL | Harmless warning on macOS with older Python; can be ignored |
+| `Registered model already exists` | Previous run created the model. This is fine — MLflow creates a new version |
+| Model download fails from UCI | Check internet connection, or place `heart.csv` in a `data/` subdirectory |
+| MLflow UI not loading | Make sure you're in the same directory where `mlruns/` was created |
 
+---
 
+## Key Takeaways
 
+1. **Experiment Tracking**: MLflow logs parameters, metrics, and artifacts for every run, making model comparison straightforward and reproducible.
+2. **Model Comparison**: Training multiple models (baseline RF, tuned RF, Gradient Boosting) and comparing them in the MLflow UI helps systematically identify the best approach rather than relying on guesswork.
+3. **Hyperparameter Tuning**: `GridSearchCV` automates the search for optimal parameters, and logging the results to MLflow provides a permanent record of what was tried.
+4. **Model Registry & Aliases**: Registering models and assigning aliases like `"champion"` provides a clean deployment workflow that separates model development from production serving.
+5. **Reproducibility**: Logging scaling parameters, random seeds, conda environments, and all preprocessing steps ensures experiments can be exactly reproduced by anyone.
+6. **End-to-End Pipeline**: The lab covers the entire ML lifecycle — from raw data to a served REST API — demonstrating how MLflow ties each stage together.
